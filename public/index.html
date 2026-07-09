@@ -307,50 +307,104 @@ const downloadBtn = document.getElementById('downloadBtn');
 
 let latestJob = null;
 
+async function uploadFile(jobId, key, file) {
+  const base64 = await fileToBase64(file);
+  const res = await fetch('/.netlify/functions/upload-file', {
+    method: 'POST',
+    body: JSON.stringify({ jobId, key, base64 }),
+  });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json()).error || ''; } catch (e) {}
+    throw new Error(`Upload failed for "${file.name}" (${res.status}). ${detail}`);
+  }
+}
+
 runBtn.addEventListener('click', async () => {
   runBtn.disabled = true;
   resultsDiv.innerHTML = '';
   downloadBtn.style.display = 'none';
   progressWrap.style.display = 'block';
-  progressLabel.textContent = 'Preparing files…';
   progressBarInner.style.width = '2%';
-
-  const excelBase64 = await fileToBase64(excelInput.files[0]);
-  const empPayload = [];
-  for (const emp of employees) {
-    empPayload.push({
-      name: emp.name,
-      dtrBase64: await fileToBase64(emp.file),
-      topsheetBase64: emp.topsheetFile ? await fileToBase64(emp.topsheetFile) : null,
-    });
-  }
 
   const jobId = 'job_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
 
-  progressLabel.textContent = 'Uploading and starting review…';
-  await fetch('/.netlify/functions/check-background', {
-    method: 'POST',
-    body: JSON.stringify({
-      jobId,
-      cutoffPeriod: document.getElementById('cutoff').value || '(not specified)',
-      clientProject: document.getElementById('project').value || '(not specified)',
-      excelBase64,
-      employees: empPayload,
-    }),
-  });
+  try {
+    // Files are uploaded one at a time through a regular (non-background)
+    // function first — each file comfortably fits that function's ~4.5MB
+    // limit. The background function that actually runs the checks is only
+    // ever sent names and a job ID, which stays far under its 256KB limit.
+    progressLabel.textContent = `Uploading files… (Excel)`;
+    await uploadFile(jobId, 'excel', excelInput.files[0]);
 
-  poll(jobId);
+    for (let i = 0; i < employees.length; i++) {
+      progressLabel.textContent = `Uploading files… (${i + 1} of ${employees.length}: ${employees[i].name})`;
+      await uploadFile(jobId, `dtr:${i}`, employees[i].file);
+      if (employees[i].topsheetFile) {
+        await uploadFile(jobId, `topsheet:${i}`, employees[i].topsheetFile);
+      }
+    }
+
+    progressLabel.textContent = 'All files uploaded — starting review…';
+    const kickoff = await fetch('/.netlify/functions/check-background', {
+      method: 'POST',
+      body: JSON.stringify({
+        jobId,
+        cutoffPeriod: document.getElementById('cutoff').value || '(not specified)',
+        clientProject: document.getElementById('project').value || '(not specified)',
+        employees: employees.map((e) => ({ name: e.name, hasTopsheet: !!e.topsheetFile })),
+      }),
+    });
+    if (!kickoff.ok) {
+      throw new Error(`Could not start the review (server responded ${kickoff.status}). Check the check-background function log in Netlify.`);
+    }
+
+    poll(jobId);
+  } catch (err) {
+    progressLabel.textContent = '';
+    progressBarInner.style.width = '0%';
+    resultsDiv.innerHTML = `<div class="result-card"><div class="result-body open" style="color:var(--hold)">⚠ ${err.message}</div></div>`;
+    runBtn.disabled = false;
+  }
 });
 
+let lastProgressAt = Date.now();
+let lastCompletedCount = -1;
+const STALL_WARNING_MS = 90 * 1000; // no progress for 90s -> show a warning, keep polling
+const STALL_TIMEOUT_MS = 20 * 60 * 1000; // no progress for 20min -> stop polling
+
 async function poll(jobId) {
-  const res = await fetch('/.netlify/functions/get-results?jobId=' + jobId);
-  if (res.status === 404) { setTimeout(() => poll(jobId), 2000); return; }
-  const job = await res.json();
+  let job;
+  try {
+    const res = await fetch('/.netlify/functions/get-results?jobId=' + jobId);
+    if (res.status === 404) { setTimeout(() => poll(jobId), 2000); return; }
+    if (!res.ok) throw new Error(`Status check failed (${res.status}).`);
+    job = await res.json();
+  } catch (err) {
+    progressLabel.innerHTML = `⚠ Lost connection while checking progress: ${err.message} <br>Your batch may still be running — check the check-background function log in Netlify, or reload this page and check again shortly.`;
+    runBtn.disabled = false;
+    return; // stop polling on a hard network failure rather than looping forever
+  }
+
   latestJob = job;
+  if (job.completed !== lastCompletedCount) {
+    lastCompletedCount = job.completed;
+    lastProgressAt = Date.now();
+  }
 
   const pct = job.total ? Math.round((job.completed / job.total) * 100) : 5;
   progressBarInner.style.width = pct + '%';
-  progressLabel.textContent = `Checked ${job.completed || 0} of ${job.total || '?'} employees…`;
+
+  const stalledFor = Date.now() - lastProgressAt;
+  if (job.status === 'processing' && stalledFor > STALL_TIMEOUT_MS) {
+    progressLabel.innerHTML = `⚠ No progress for over 20 minutes — this has likely failed. Check the check-background function log in Netlify's dashboard for the actual error.`;
+    runBtn.disabled = false;
+    return; // stop polling
+  } else if (job.status === 'processing' && stalledFor > STALL_WARNING_MS) {
+    progressLabel.innerHTML = `⚠ No progress in a while (checked ${job.completed || 0} of ${job.total || '?'}) — still might just be a slow file. If this doesn't move soon, check the check-background function log in Netlify.`;
+  } else {
+    progressLabel.textContent = `Checked ${job.completed || 0} of ${job.total || '?'} employees…`;
+  }
 
   renderResults(job.results || []);
 
