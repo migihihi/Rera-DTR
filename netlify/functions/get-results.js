@@ -1,4 +1,4 @@
-const { getStore } = require('@netlify/blobs');
+const { getConfiguredStore } = require('./blob-config');
 
 exports.handler = async (event) => {
   const jobId = event.queryStringParameters && event.queryStringParameters.jobId;
@@ -6,7 +6,7 @@ exports.handler = async (event) => {
     return { statusCode: 400, body: JSON.stringify({ error: 'Missing jobId' }) };
   }
 
-  const store = getStore('dtr-checker-jobs');
+  const store = getConfiguredStore('dtr-checker-jobs');
   const job = await store.get(jobId, { type: 'json' });
 
   if (!job) {

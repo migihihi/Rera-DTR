@@ -1,5 +1,5 @@
 const XLSX = require('xlsx');
-const { getStore } = require('@netlify/blobs');
+const { getConfiguredStore } = require('./blob-config');
 const { CHECKER_SYSTEM_PROMPT } = require('./checker-prompt');
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -115,8 +115,8 @@ async function callChecker({ employeeName, cutoffPeriod, clientProject, excelRow
 }
 
 exports.handler = async (event) => {
-  const store = getStore('dtr-checker-jobs');
-  const uploadsStore = getStore('dtr-checker-uploads');
+  const store = getConfiguredStore('dtr-checker-jobs');
+  const uploadsStore = getConfiguredStore('dtr-checker-uploads');
   // This payload is now small — jobId, names, and metadata only. The actual
   // file bytes were already written to uploadsStore by upload-file.js before
   // this function was ever called, to stay under the background function's

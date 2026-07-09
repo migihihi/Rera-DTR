@@ -1,4 +1,4 @@
-const { getStore } = require('@netlify/blobs');
+const { getConfiguredStore } = require('./blob-config');
 
 // Synchronous functions allow ~4.5MB of binary data per request (base64
 // overhead included) — background functions only allow 256KB. Scanned DTR
@@ -16,7 +16,7 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'Missing jobId, key, or base64' }) };
     }
 
-    const store = getStore('dtr-checker-uploads');
+    const store = getConfiguredStore('dtr-checker-uploads');
     await store.set(`${jobId}:${key}`, base64);
 
     return { statusCode: 200, body: JSON.stringify({ ok: true }) };
