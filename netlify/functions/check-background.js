@@ -116,8 +116,13 @@ async function callChecker({ employeeName, cutoffPeriod, clientProject, excelRow
 
 exports.handler = async (event) => {
   const store = getStore('dtr-checker-jobs');
+  const uploadsStore = getStore('dtr-checker-uploads');
+  // This payload is now small — jobId, names, and metadata only. The actual
+  // file bytes were already written to uploadsStore by upload-file.js before
+  // this function was ever called, to stay under the background function's
+  // 256KB request limit.
   const payload = JSON.parse(event.body);
-  const { jobId, cutoffPeriod, clientProject, excelBase64, employees } = payload;
+  const { jobId, cutoffPeriod, clientProject, employees } = payload;
 
   await store.setJSON(jobId, {
     status: 'processing',
@@ -127,23 +132,37 @@ exports.handler = async (event) => {
     startedAt: new Date().toISOString(),
   });
 
+  const uploadKeysToClean = [`${jobId}:excel`];
+
   try {
+    const excelBase64 = await uploadsStore.get(`${jobId}:excel`);
+    if (!excelBase64) throw new Error('Excel file was not found in storage — upload may have failed.');
     const excelBuffer = Buffer.from(excelBase64, 'base64');
     const workbook = XLSX.read(excelBuffer, { type: 'buffer' });
     const results = [];
 
-    for (const emp of employees) {
+    for (let i = 0; i < employees.length; i++) {
+      const emp = employees[i];
+      const dtrKey = `${jobId}:dtr:${i}`;
+      const topsheetKey = `${jobId}:topsheet:${i}`;
+      uploadKeysToClean.push(dtrKey);
+      if (emp.hasTopsheet) uploadKeysToClean.push(topsheetKey);
+
       let reportText;
       let errorMsg = null;
       try {
+        const dtrBase64 = await uploadsStore.get(dtrKey);
+        if (!dtrBase64) throw new Error('DTR file was not found in storage — upload may have failed.');
+        const topsheetBase64 = emp.hasTopsheet ? await uploadsStore.get(topsheetKey) : null;
+
         const excelRows = extractEmployeeRows(workbook, emp.name);
         reportText = await callChecker({
           employeeName: emp.name,
           cutoffPeriod,
           clientProject,
           excelRows,
-          dtrBase64: emp.dtrBase64,
-          topsheetBase64: emp.topsheetBase64 || null,
+          dtrBase64,
+          topsheetBase64,
         });
       } catch (err) {
         errorMsg = err.message;
@@ -175,5 +194,9 @@ exports.handler = async (event) => {
       status: 'error',
       error: err.message,
     });
+  } finally {
+    // Clean up the uploaded files now that processing is done — payroll
+    // and DTR data shouldn't sit in storage longer than it takes to run.
+    await Promise.allSettled(uploadKeysToClean.map((k) => uploadsStore.delete(k)));
   }
 };
