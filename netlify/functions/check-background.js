@@ -143,8 +143,12 @@ exports.handler = async (event) => {
 
     for (let i = 0; i < employees.length; i++) {
       const emp = employees[i];
-      const dtrKey = `${jobId}:dtr:${i}`;
-      const topsheetKey = `${jobId}:topsheet:${i}`;
+      // uploadIndex is the employee's position in the original upload batch
+      // on the frontend — not necessarily i, since employees whose files
+      // failed to upload get skipped there, leaving gaps.
+      const uploadIndex = emp.uploadIndex ?? i;
+      const dtrKey = `${jobId}:dtr:${uploadIndex}`;
+      const topsheetKey = `${jobId}:topsheet:${uploadIndex}`;
       uploadKeysToClean.push(dtrKey);
       if (emp.hasTopsheet) uploadKeysToClean.push(topsheetKey);
 
