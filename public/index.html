@@ -315,10 +315,16 @@ async function uploadFile(jobId, key, file) {
   });
   if (!res.ok) {
     let detail = '';
-    try { detail = (await res.json()).error || ''; } catch (e) {}
-    throw new Error(`Upload failed for "${file.name}" (${res.status}). ${detail}`);
+    try {
+      detail = (await res.json()).error || '';
+    } catch (e) {
+      try { detail = (await res.text()).slice(0, 200); } catch (e2) { /* give up, no body to read */ }
+    }
+    throw new Error(`Upload failed for "${file.name}" (${res.status}).${detail ? ' ' + detail : ' No error detail returned — check the upload-file function log in Netlify.'}`);
   }
 }
+
+let uploadFailures = []; // { name, report: null, error } — merged into results display alongside real check results
 
 runBtn.addEventListener('click', async () => {
   runBtn.disabled = true;
@@ -326,44 +332,72 @@ runBtn.addEventListener('click', async () => {
   downloadBtn.style.display = 'none';
   progressWrap.style.display = 'block';
   progressBarInner.style.width = '2%';
+  uploadFailures = [];
 
   const jobId = 'job_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
 
+  // Files are uploaded one at a time through a regular (non-background)
+  // function first — each file comfortably fits that function's ~4.5MB
+  // limit. The background function that actually runs the checks is only
+  // ever sent names and a job ID, which stays far under its 256KB limit.
+  progressLabel.textContent = `Uploading files… (Excel)`;
   try {
-    // Files are uploaded one at a time through a regular (non-background)
-    // function first — each file comfortably fits that function's ~4.5MB
-    // limit. The background function that actually runs the checks is only
-    // ever sent names and a job ID, which stays far under its 256KB limit.
-    progressLabel.textContent = `Uploading files… (Excel)`;
     await uploadFile(jobId, 'excel', excelInput.files[0]);
+  } catch (err) {
+    // The Excel file is shared by everyone — no point continuing without it.
+    progressLabel.textContent = '';
+    progressBarInner.style.width = '0%';
+    resultsDiv.innerHTML = `<div class="result-card"><div class="result-body open" style="color:var(--hold)">⚠ ${err.message}</div></div>`;
+    runBtn.disabled = false;
+    return;
+  }
 
-    for (let i = 0; i < employees.length; i++) {
-      progressLabel.textContent = `Uploading files… (${i + 1} of ${employees.length}: ${employees[i].name})`;
-      await uploadFile(jobId, `dtr:${i}`, employees[i].file);
-      if (employees[i].topsheetFile) {
-        await uploadFile(jobId, `topsheet:${i}`, employees[i].topsheetFile);
+  const readyEmployees = [];
+  for (let i = 0; i < employees.length; i++) {
+    const emp = employees[i];
+    progressLabel.textContent = `Uploading files… (${i + 1} of ${employees.length}: ${emp.name})`;
+    try {
+      await uploadFile(jobId, `dtr:${i}`, emp.file);
+      if (emp.topsheetFile) {
+        await uploadFile(jobId, `topsheet:${i}`, emp.topsheetFile);
       }
+      readyEmployees.push({ index: i, name: emp.name, hasTopsheet: !!emp.topsheetFile });
+    } catch (err) {
+      // This one person's file failed — skip them, keep going with everyone else.
+      uploadFailures.push({ name: emp.name, report: null, error: err.message });
     }
+  }
+  renderResults(uploadFailures);
 
-    progressLabel.textContent = 'All files uploaded — starting review…';
+  if (readyEmployees.length === 0) {
+    progressLabel.textContent = '';
+    progressBarInner.style.width = '0%';
+    runBtn.disabled = false;
+    return; // nothing uploaded successfully, nothing to check
+  }
+
+  progressLabel.textContent = 'Files uploaded — starting review…';
+  try {
     const kickoff = await fetch('/.netlify/functions/check-background', {
       method: 'POST',
       body: JSON.stringify({
         jobId,
         cutoffPeriod: document.getElementById('cutoff').value || '(not specified)',
         clientProject: document.getElementById('project').value || '(not specified)',
-        employees: employees.map((e) => ({ name: e.name, hasTopsheet: !!e.topsheetFile })),
+        // Re-index against the files actually stored (index i in blob keys
+        // dtr:i / topsheet:i above), not against the original employees array,
+        // since skipped employees leave gaps.
+        employees: readyEmployees.map((e) => ({ name: e.name, hasTopsheet: e.hasTopsheet, uploadIndex: e.index })),
       }),
     });
     if (!kickoff.ok) {
       throw new Error(`Could not start the review (server responded ${kickoff.status}). Check the check-background function log in Netlify.`);
     }
-
     poll(jobId);
   } catch (err) {
     progressLabel.textContent = '';
     progressBarInner.style.width = '0%';
-    resultsDiv.innerHTML = `<div class="result-card"><div class="result-body open" style="color:var(--hold)">⚠ ${err.message}</div></div>`;
+    resultsDiv.innerHTML += `<div class="result-card"><div class="result-body open" style="color:var(--hold)">⚠ ${err.message}</div></div>`;
     runBtn.disabled = false;
   }
 });
@@ -406,7 +440,7 @@ async function poll(jobId) {
     progressLabel.textContent = `Checked ${job.completed || 0} of ${job.total || '?'} employees…`;
   }
 
-  renderResults(job.results || []);
+  renderResults([...(job.results || []), ...uploadFailures]);
 
   if (job.status === 'processing') {
     setTimeout(() => poll(jobId), 2500);
@@ -466,7 +500,8 @@ function renderResults(results) {
 
 downloadBtn.addEventListener('click', () => {
   if (!latestJob) return;
-  const lines = latestJob.results.map((r) => `${'='.repeat(60)}\n${r.name}\n${'='.repeat(60)}\n\n${r.report || '(error: ' + r.error + ')'}\n`);
+  const allResults = [...latestJob.results, ...uploadFailures];
+  const lines = allResults.map((r) => `${'='.repeat(60)}\n${r.name}\n${'='.repeat(60)}\n\n${r.report || '(error: ' + r.error + ')'}\n`);
   const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
