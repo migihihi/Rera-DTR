@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Rera DTR Checker</title>
+<style>
+  :root {
+    --ink: #1c2430;
+    --ink-soft: #5b6472;
+    --paper: #f7f6f3;
+    --line: #dcd9d2;
+    --card: #ffffff;
+    --accent: #2f5d50;
+    --hold: #b3432b;
+    --hold-bg: #fbeae5;
+    --minor: #a3781f;
+    --minor-bg: #faf3e0;
+    --good: #2f6b4f;
+    --good-bg: #e9f3ec;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+  }
+  header {
+    padding: 28px 32px 20px;
+    border-bottom: 1px solid var(--line);
+    background: var(--card);
+  }
+  header h1 {
+    margin: 0 0 4px;
+    font-size: 21px;
+    letter-spacing: -0.01em;
+  }
+  header p {
+    margin: 0;
+    color: var(--ink-soft);
+    font-size: 14px;
+  }
+  main {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 28px 20px 80px;
+  }
+  section.panel {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 22px 24px;
+    margin-bottom: 20px;
+  }
+  section.panel h2 {
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-soft);
+    margin: 0 0 14px;
+  }
+  .row2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  input[type="text"], input[type="file"] {
+    width: 100%;
+    padding: 9px 11px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    font-size: 14px;
+    background: #fff;
+    font-family: inherit;
+  }
+  .field { margin-bottom: 14px; }
+  .hint { font-size: 12.5px; color: var(--ink-soft); margin-top: 4px; }
+
+  table.emp-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }
+  table.emp-table th {
+    text-align: left;
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--ink-soft);
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--line);
+  }
+  table.emp-table td {
+    padding: 8px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: middle;
+  }
+  table.emp-table input[type="text"] { font-size: 13px; padding: 6px 8px; }
+  table.emp-table input[type="file"] { font-size: 12px; padding: 4px; }
+
+  button {
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 11px 20px;
+    border-radius: 7px;
+    border: none;
+    cursor: pointer;
+  }
+  button.primary { background: var(--accent); color: #fff; }
+  button.primary:disabled { background: #a9b6b0; cursor: not-allowed; }
+  button.ghost { background: transparent; border: 1px solid var(--line); color: var(--ink); }
+
+  #progressWrap { display: none; margin-top: 16px; }
+  #progressBarOuter {
+    background: var(--line); border-radius: 100px; height: 8px; overflow: hidden;
+  }
+  #progressBarInner {
+    background: var(--accent); height: 100%; width: 0%; transition: width .3s ease;
+  }
+  #progressLabel { font-size: 13px; color: var(--ink-soft); margin-top: 8px; }
+
+  .result-card {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    margin-bottom: 14px;
+    overflow: hidden;
+  }
+  .result-head {
+    padding: 14px 18px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+  }
+  .result-head .name { font-weight: 700; font-size: 14.5px; }
+  .badge {
+    font-size: 12px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 100px;
+  }
+  .badge.hold { background: var(--hold-bg); color: var(--hold); }
+  .badge.minor { background: var(--minor-bg); color: var(--minor); }
+  .badge.good { background: var(--good-bg); color: var(--good); }
+  .badge.error { background: #eee; color: #888; }
+  .result-body {
+    padding: 0 18px 18px;
+    display: none;
+    font-size: 14px;
+    white-space: pre-wrap;
+  }
+  .result-body.open { display: block; }
+  .result-body h2 { font-size: 13px; margin: 16px 0 6px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-soft); }
+  .result-body h2:first-child { margin-top: 4px; }
+
+  #downloadBtn { display: none; margin-top: 16px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Rera DTR Checker</h1>
+  <p>Checks time card/DTR, topsheet, and Excel upload file for discrepancies before upload — automatically, per employee.</p>
+</header>
+
+<main>
+
+  <section class="panel">
+    <h2>Batch details</h2>
+    <div class="row2">
+      <div class="field">
+        <label for="cutoff">Cutoff period</label>
+        <input type="text" id="cutoff" placeholder="e.g. June 1–15, 2026" />
+      </div>
+      <div class="field">
+        <label for="project">Client / Project</label>
+        <input type="text" id="project" placeholder="e.g. Puregold Luzonwide" />
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Payroll Excel upload file</h2>
+    <div class="field">
+      <input type="file" id="excelFile" accept=".xlsx,.xls" />
+      <div class="hint">The file with Attendance Transaction / Overtime Request / Reimbursement Import tabs.</div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Promodiser files</h2>
+    <div class="field">
+      <label for="dtrFiles">Add DTR PDFs (one per employee — select as many as you have)</label>
+      <input type="file" id="dtrFiles" accept="application/pdf" multiple />
+      <div class="hint">Employee name is guessed from each filename — check and fix it below before running.</div>
+    </div>
+    <div id="empTableWrap" style="display:none;">
+      <table class="emp-table">
+        <thead>
+          <tr><th style="width:26%">DTR file</th><th style="width:34%">Employee name</th><th style="width:40%">Topsheet (optional)</th></tr>
+        </thead>
+        <tbody id="empTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <button class="primary" id="runBtn" disabled>Run Check</button>
+
+  <div id="progressWrap">
+    <div id="progressBarOuter"><div id="progressBarInner"></div></div>
+    <div id="progressLabel"></div>
+  </div>
+
+  <button class="ghost" id="downloadBtn">Download full report (.txt)</button>
+
+  <div id="results" style="margin-top:24px;"></div>
+
+</main>
+
+<script>
+let employees = []; // { file, name, topsheetFile }
+
+function guessName(filename) {
+  let base = filename.replace(/\.[^.]+$/, '');
+  const cutPattern = /(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec|\d{4}|\d{1,2}[-_]\d{1,2})/i;
+  const m = base.match(cutPattern);
+  if (m) base = base.slice(0, m.index);
+  return base.replace(/_+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+const dtrInput = document.getElementById('dtrFiles');
+const empTableWrap = document.getElementById('empTableWrap');
+const empTableBody = document.getElementById('empTableBody');
+const runBtn = document.getElementById('runBtn');
+const excelInput = document.getElementById('excelFile');
+
+dtrInput.addEventListener('change', () => {
+  employees = Array.from(dtrInput.files).map((f) => ({ file: f, name: guessName(f.name), topsheetFile: null }));
+  renderEmpTable();
+});
+
+function renderEmpTable() {
+  empTableBody.innerHTML = '';
+  if (!employees.length) { empTableWrap.style.display = 'none'; return; }
+  empTableWrap.style.display = 'block';
+
+  employees.forEach((emp, idx) => {
+    const tr = document.createElement('tr');
+
+    const tdFile = document.createElement('td');
+    tdFile.textContent = emp.file.name;
+    tdFile.style.fontSize = '12.5px';
+    tdFile.style.color = 'var(--ink-soft)';
+
+    const tdName = document.createElement('td');
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.value = emp.name;
+    nameInput.addEventListener('input', (e) => { employees[idx].name = e.target.value; checkReady(); });
+    tdName.appendChild(nameInput);
+
+    const tdTop = document.createElement('td');
+    const topInput = document.createElement('input');
+    topInput.type = 'file';
+    topInput.accept = 'application/pdf';
+    topInput.addEventListener('change', (e) => { employees[idx].topsheetFile = e.target.files[0] || null; });
+    tdTop.appendChild(topInput);
+
+    tr.appendChild(tdFile);
+    tr.appendChild(tdName);
+    tr.appendChild(tdTop);
+    empTableBody.appendChild(tr);
+  });
+  checkReady();
+}
+
+function checkReady() {
+  const namesOk = employees.length > 0 && employees.every((e) => e.name.trim().length > 0);
+  runBtn.disabled = !(excelInput.files.length && namesOk);
+}
+excelInput.addEventListener('change', checkReady);
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result.split(',')[1]);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+const progressWrap = document.getElementById('progressWrap');
+const progressBarInner = document.getElementById('progressBarInner');
+const progressLabel = document.getElementById('progressLabel');
+const resultsDiv = document.getElementById('results');
+const downloadBtn = document.getElementById('downloadBtn');
+
+let latestJob = null;
+
+runBtn.addEventListener('click', async () => {
+  runBtn.disabled = true;
+  resultsDiv.innerHTML = '';
+  downloadBtn.style.display = 'none';
+  progressWrap.style.display = 'block';
+  progressLabel.textContent = 'Preparing files…';
+  progressBarInner.style.width = '2%';
+
+  const excelBase64 = await fileToBase64(excelInput.files[0]);
+  const empPayload = [];
+  for (const emp of employees) {
+    empPayload.push({
+      name: emp.name,
+      dtrBase64: await fileToBase64(emp.file),
+      topsheetBase64: emp.topsheetFile ? await fileToBase64(emp.topsheetFile) : null,
+    });
+  }
+
+  const jobId = 'job_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+
+  progressLabel.textContent = 'Uploading and starting review…';
+  await fetch('/.netlify/functions/check-background', {
+    method: 'POST',
+    body: JSON.stringify({
+      jobId,
+      cutoffPeriod: document.getElementById('cutoff').value || '(not specified)',
+      clientProject: document.getElementById('project').value || '(not specified)',
+      excelBase64,
+      employees: empPayload,
+    }),
+  });
+
+  poll(jobId);
+});
+
+async function poll(jobId) {
+  const res = await fetch('/.netlify/functions/get-results?jobId=' + jobId);
+  if (res.status === 404) { setTimeout(() => poll(jobId), 2000); return; }
+  const job = await res.json();
+  latestJob = job;
+
+  const pct = job.total ? Math.round((job.completed / job.total) * 100) : 5;
+  progressBarInner.style.width = pct + '%';
+  progressLabel.textContent = `Checked ${job.completed || 0} of ${job.total || '?'} employees…`;
+
+  renderResults(job.results || []);
+
+  if (job.status === 'processing') {
+    setTimeout(() => poll(jobId), 2500);
+  } else if (job.status === 'done') {
+    progressLabel.textContent = `Done — ${job.total} employee(s) checked.`;
+    downloadBtn.style.display = 'inline-block';
+    runBtn.disabled = false;
+  } else if (job.status === 'error') {
+    progressLabel.textContent = 'Error: ' + job.error;
+    runBtn.disabled = false;
+  }
+}
+
+function badgeFor(reportText) {
+  if (!reportText) return { cls: 'error', label: 'Error' };
+  if (/Hold Upload/i.test(reportText)) return { cls: 'hold', label: 'Hold Upload' };
+  if (/Good to Upload, with Minor Notes/i.test(reportText)) return { cls: 'minor', label: 'Minor Notes' };
+  if (/Good to Upload/i.test(reportText)) return { cls: 'good', label: 'Good to Upload' };
+  return { cls: 'error', label: 'Unclear' };
+}
+
+function simpleMarkdownToHtml(md) {
+  return md
+    .replace(/^## (.*)$/gm, '<h2>$1</h2>')
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+}
+
+function renderResults(results) {
+  // Sort worst-first: Hold Upload, then Minor Notes, then Good, then errors last-but-visible.
+  const order = { hold: 0, minor: 1, good: 2, error: 3 };
+  const sorted = [...results].sort((a, b) => {
+    const ba = badgeFor(a.report).cls, bb = badgeFor(b.report).cls;
+    return order[ba] - order[bb];
+  });
+
+  resultsDiv.innerHTML = '';
+  sorted.forEach((r) => {
+    const badge = badgeFor(r.report);
+    const card = document.createElement('div');
+    card.className = 'result-card';
+
+    const head = document.createElement('div');
+    head.className = 'result-head';
+    head.innerHTML = `<span class="name">${r.name}</span><span class="badge ${badge.cls}">${badge.label}</span>`;
+
+    const body = document.createElement('div');
+    body.className = 'result-body';
+    body.innerHTML = r.report ? simpleMarkdownToHtml(r.report) : `<em>Could not process this employee: ${r.error || 'unknown error'}</em>`;
+
+    head.addEventListener('click', () => body.classList.toggle('open'));
+
+    card.appendChild(head);
+    card.appendChild(body);
+    resultsDiv.appendChild(card);
+  });
+}
+
+downloadBtn.addEventListener('click', () => {
+  if (!latestJob) return;
+  const lines = latestJob.results.map((r) => `${'='.repeat(60)}\n${r.name}\n${'='.repeat(60)}\n\n${r.report || '(error: ' + r.error + ')'}\n`);
+  const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'dtr-check-report.txt';
+  a.click();
+});
+</script>
+
+</body>
+</html>

@@ -1,0 +1,10 @@
+[build]
+  publish = "public"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+# Background functions (any file ending in "-background.js") get up to 15
+# minutes instead of the standard ~10-26 second limit. That's what lets us
+# process a whole batch of employees without timing out mid-run.

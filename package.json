@@ -1,0 +1,10 @@
+{
+  "name": "rera-dtr-checker",
+  "version": "1.0.0",
+  "description": "Internal tool: checks DTR / topsheet / payroll Excel for discrepancies before upload.",
+  "private": true,
+  "dependencies": {
+    "xlsx": "^0.18.5",
+    "@netlify/blobs": "^7.0.0"
+  }
+}
